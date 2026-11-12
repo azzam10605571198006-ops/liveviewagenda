@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Presensi - MAN 1 MUSI BANYUASIN</title>
+
+    <!-- Firebase SDK (Compat Version for easiest hosting) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background-color: #1B5E20;
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-left h1 { margin: 0; font-size: 24px; }
+        .header-left p { margin: 5px 0 0 0; font-size: 14px; opacity: 0.8; }
+        .live-badge {
+            background-color: #388E3C;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .dot {
+            width: 10px; height: 10px;
+            background-color: #ff5252;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 82, 82, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 82, 82, 0); }
+        }
+        .summary-container {
+            display: flex; padding: 20px; gap: 20px; justify-content: space-between; flex-wrap: wrap;
+        }
+        .summary-card {
+            flex: 1; min-width: 200px; border-radius: 12px; padding: 20px; color: white;
+            display: flex; flex-direction: column; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .summary-card h2 { margin: 0; font-size: 36px; }
+        .summary-card p { margin: 5px 0 0 0; font-size: 14px; font-weight: bold;}
+        .grid-container {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; padding: 0 20px 20px 20px;
+        }
+        .class-card {
+            background: white; border-radius: 12px; padding: 20px; display: flex; justify-content: space-between;
+            align-items: center; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: transform 0.2s;
+        }
+        .class-card:hover { transform: translateY(-5px); box-shadow: 0 6px 12px rgba(0,0,0,0.1); }
+        .class-info h3 { margin: 0; color: #333; font-size: 20px; }
+        .class-info p { margin: 5px 0 0 0; color: #666; font-weight: bold; }
+        .progress-circle {
+            width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center;
+        }
+        .inner-circle {
+            width: 48px; height: 48px; background-color: white; border-radius: 50%; display: flex;
+            justify-content: center; align-items: center; font-weight: bold; font-size: 14px; color: #333;
+        }
+        /* Modal */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5);
+            display: none; justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal-content {
+            background: white; width: 90%; max-width: 500px; max-height: 80vh; border-radius: 12px;
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+        .modal-header {
+            padding: 20px; background: #1B5E20; color: white; display: flex; justify-content: space-between; align-items: center;
+        }
+        .modal-header h2 { margin: 0; font-size: 20px; }
+        .close-btn { background: none; border: none; color: white; font-size: 24px; cursor: pointer; }
+        .modal-list { padding: 20px; overflow-y: auto; flex: 1; }
+        .student-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eee; }
+        .student-row .name { font-weight: 500; color: #333; }
+        .student-row .status { font-weight: bold; }
+        #status { text-align: center; padding: 40px; font-size: 18px; color: #666; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-left">
+            <h1>MAN 1 MUSI BANYUASIN</h1>
+            <p>Religius, Unggul, Berprestasi</p>
+        </div>
+        <div class="live-badge">
+            <div class="dot"></div>
+            LIVE - Realtime
+        </div>
+    </div>
+
+    <div id="status">Menginisialisasi Firebase...</div>
+
+    <div class="summary-container" id="summary-container" style="display: none;">
+        <div class="summary-card" style="background-color: #1B5E20;">
+            <p>Total Siswa</p>
+            <h2 id="summary-total">0</h2>
+        </div>
+        <div class="summary-card" style="background-color: #4CAF50;">
+            <p>Tepat Waktu / Hadir</p>
+            <h2 id="summary-hadir">0</h2>
+        </div>
+        <div class="summary-card" style="background-color: #FBC02D;">
+            <p>Menunggu / Lainnya</p>
+            <h2 id="summary-lain">0</h2>
+        </div>
+        <div class="summary-card" style="background-color: #E53935;">
+            <p>Tidak Hadir / Alpha</p>
+            <h2 id="summary-tidak">0</h2>
+        </div>
+    </div>
+
+    <div class="grid-container" id="class-grid"></div>
+
+    <div class="modal-overlay" id="details-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Detail Kelas</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-list" id="modal-list"></div>
+        </div>
+    </div>
+
+    <script>
+        // TODO: REPLACE WITH YOUR FIREBASE CONFIG
+        // Find this in Firebase Console -> Project Settings -> General -> Web Apps
+        const firebaseConfig = {
+            apiKey: "AIzaSyC04hCFucnNQVC0QcJ6CkZ1d-lV_OD2OBo",
+            authDomain: "nisn-f70a8.firebaseapp.com",
+            projectId: "nisn-f70a8",
+            storageBucket: "nisn-f70a8.firebasestorage.app",
+            messagingSenderId: "661540097001",
+            appId: "1:661540097001:web:cf49be59a039164e2dd978"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // Get Session ID from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionId = urlParams.get('session');
+
+        if (!sessionId) {
+            document.getElementById('status').innerText = "Session ID tidak ditemukan di URL. (Gunakan ?session=ID)";
+        } else {
+            document.getElementById('status').innerText = "Memuat data...";
+            loadLiveData(sessionId);
+        }
+
+        async function loadLiveData(sessionId) {
+            try {
+                // Fetch Master Students list (once)
+                const studentsSnapshot = await db.collection("students").get();
+                let allStudents = [];
+                studentsSnapshot.forEach((doc) => {
+                    allStudents.push(doc.data());
+                });
+
+                // Group students by Class
+                let studentsByClass = {};
+                allStudents.forEach(student => {
+                    let className = student.className || "Tanpa Kelas";
+                    if (!studentsByClass[className]) {
+                        studentsByClass[className] = [];
+                    }
+                    studentsByClass[className].push(student);
+                });
+
+                // Setup Real-time Listener for Attendance
+                db.collection("attendance")
+                  .where("sessionId", "==", sessionId)
+                  .onSnapshot((snapshot) => {
+                    let liveAttendance = [];
+                    snapshot.forEach((doc) => {
+                        liveAttendance.push(doc.data());
+                    });
+                    updateUI(allStudents, studentsByClass, liveAttendance);
+                }, (error) => {
+                    console.error("Listener error:", error);
+                    document.getElementById('status').innerText = "Koneksi terputus. Pastikan aturan keamanan Firebase (Firestore Rules) mengizinkan baca.";
+                });
+
+            } catch (error) {
+                console.error("Error loading data: ", error);
+                document.getElementById('status').innerText = "Gagal memuat data. Periksa konfigurasi Firebase Anda.";
+            }
+        }
+
+        function updateUI(allStudents, studentsByClass, liveAttendance) {
+            document.getElementById('status').style.display = 'none';
+            document.getElementById('summary-container').style.display = 'flex';
+
+            // Update Summaries
+            const totalSiswa = allStudents.length;
+            const hadir = liveAttendance.filter(r => r.status === "Hadir").length;
+            const lain = liveAttendance.filter(r => r.status !== "Hadir" && r.status !== "Alpha" && r.status !== "Melanggar").length;
+            const tidakHadir = totalSiswa - hadir - lain;
+
+            document.getElementById('summary-total').innerText = totalSiswa;
+            document.getElementById('summary-hadir').innerText = hadir;
+            document.getElementById('summary-lain').innerText = lain;
+            document.getElementById('summary-tidak').innerText = tidakHadir;
+
+            // Draw Class Grid
+            const grid = document.getElementById('class-grid');
+            grid.innerHTML = '';
+
+            // Sort Classes
+            const sortedClasses = Object.keys(studentsByClass).sort();
+
+            sortedClasses.forEach(className => {
+                const classStudents = studentsByClass[className];
+                const classTotal = classStudents.length;
+
+                const classAttendedRecords = liveAttendance.filter(record =>
+                    classStudents.some(s => s.nisn === record.nisn) && record.status !== "Alpha"
+                );
+                const classAttendedCount = classAttendedRecords.length;
+
+                const percentage = classTotal > 0 ? Math.round((classAttendedCount / classTotal) * 100) : 0;
+
+                let progressColor = "#E53935"; // Red
+                if (percentage === 100) progressColor = "#4CAF50"; // Green
+                else if (percentage > 0) progressColor = "#1976D2"; // Blue
+
+                const card = document.createElement('div');
+                card.className = 'class-card';
+                card.innerHTML = `
+                    <div class="class-info">
+                        <h3>${className}</h3>
+                        <p>${classAttendedCount} / ${classTotal}</p>
+                    </div>
+                    <div class="progress-circle" style="background: conic-gradient(${progressColor} ${percentage}%, #e0e0e0 0);">
+                        <div class="inner-circle">${percentage}%</div>
+                    </div>
+                `;
+
+                card.onclick = () => showDetails(className, classStudents, liveAttendance);
+                grid.appendChild(card);
+            });
+        }
+
+        function showDetails(className, classStudents, liveAttendance) {
+            const modal = document.getElementById('details-modal');
+            document.getElementById('modal-title').innerText = "Detail Kelas " + className;
+            const list = document.getElementById('modal-list');
+            list.innerHTML = '';
+
+            const sortedStudents = [...classStudents].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+            sortedStudents.forEach(student => {
+                const record = liveAttendance.find(r => r.nisn === student.nisn);
+                const status = (record && record.status !== "Alpha") ? record.status : "Belum Hadir";
+                const color = (record && record.status !== "Alpha") ? "#1B5E20" : "#E53935";
+
+                const row = document.createElement('div');
+                row.className = 'student-row';
+                row.innerHTML = `
+                    <span class="name">${student.name}</span>
+                    <span class="status" style="color: ${color}">${status}</span>
+                `;
+                list.appendChild(row);
+            });
+            modal.style.display = 'flex';
+        }
+
+        window.closeModal = function() {
+            document.getElementById('details-modal').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
