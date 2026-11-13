@@ -172,10 +172,19 @@
 
     <div id="status">Menginisialisasi Firebase...</div>
 
+    <div id="config-error" style="display: none; background: #ffebee; color: #c62828; padding: 20px; margin: 20px; border-radius: 8px; border: 1px solid #ef9a9a; text-align: center;">
+        <h2 style="margin-top: 0;">Konfigurasi Firebase Belum Diatur!</h2>
+        <p>Anda belum menempelkan (paste) konfigurasi Firebase ke dalam file ini. Silakan buka file <code>index.html</code> menggunakan Notepad atau VS Code, cari bagian <strong>firebaseConfig</strong>, dan ganti <code>"YOUR_API_KEY"</code> dengan kunci dari Firebase Console Anda.</p>
+    </div>
+
     <!-- Daily Agendas Selector -->
     <div class="search-container" id="agenda-container" style="display: none;">
-        <h2>Kegiatan Hari Ini</h2>
-        <p>Silakan pilih kegiatan yang sedang berlangsung:</p>
+        <h2>Daftar Kegiatan</h2>
+        <div style="margin-bottom: 20px;">
+            <label for="agenda-date" style="font-weight: bold; color: #1B5E20; display: block; margin-bottom: 5px;">Pilih Tanggal:</label>
+            <input type="date" id="agenda-date" onchange="loadAgendasForDate()" style="padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; width: 100%; max-width: 300px;">
+        </div>
+        <p id="agenda-subtitle">Silakan pilih kegiatan yang sedang berlangsung:</p>
         <div id="agenda-list" style="display: flex; flex-direction: column; gap: 10px; width: 100%;"></div>
     </div>
 
@@ -212,6 +221,7 @@
                 <h3 style="margin-top: 0; margin-bottom: 5px;">Usulan Keterangan</h3>
                 <p id="proposal-student-name" style="margin: 0; font-weight: bold; color: #1B5E20;"></p>
                 <select id="proposal-status">
+                    <option value="Hadir (Sudah Ditindak)">Hadir (Sudah Ditindak)</option>
                     <option value="Sakit">Sakit</option>
                     <option value="Izin">Izin</option>
                     <option value="Haid">Haid</option>
@@ -224,6 +234,7 @@
                     <option value="Teman">Teman</option>
                 </select>
                 <input type="text" id="proposal-name" placeholder="Nama Pelapor (Contoh: Budi)">
+                <textarea id="proposal-notes" placeholder="Catatan / Pesan (Opsional)&#10;Contoh: Siswa telah dipanggil dan diminta solat di tempat..." style="padding: 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 16px; font-family: inherit; resize: vertical; min-height: 60px;"></textarea>
                 <button onclick="submitProposal()">Kirim Usulan</button>
             </div>
         </div>
@@ -242,243 +253,265 @@
         };
 
         // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-
-        // Get Session ID from URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const sessionId = urlParams.get('session');
-
-        let currentSessionId = sessionId;
-        let selectedStudentNisn = "";
-
-        if (!sessionId) {
-            document.getElementById('status').innerText = "Mencari jadwal hari ini...";
-            loadTodayAgendas();
-        } else {
-            document.getElementById('status').innerText = "Memuat data...";
-            loadLiveData(sessionId);
-        }
-
-        async function loadTodayAgendas() {
-            try {
-                const today = new Date().toISOString().split('T')[0];
-                const snapshot = await db.collection("agendas").where("date", "==", today).get();
-
-                if (snapshot.empty) {
-                    document.getElementById('status').innerText = "Tidak ada agenda/kegiatan untuk hari ini.";
-                    return;
-                }
-
-                document.getElementById('status').style.display = 'none';
-                const container = document.getElementById('agenda-container');
-                const list = document.getElementById('agenda-list');
-                container.style.display = 'flex';
-                list.innerHTML = '';
-
-                snapshot.forEach(doc => {
-                    const agenda = doc.data();
-                    const btn = document.createElement('button');
-                    btn.style.padding = "12px"; btn.style.background = "#1B5E20"; btn.style.color = "white";
-                    btn.style.border = "none"; btn.style.borderRadius = "8px"; btn.style.cursor = "pointer";
-                    btn.style.fontWeight = "bold";
-                    btn.innerText = agenda.activityName + " (" + agenda.time + ")";
-                    btn.onclick = () => {
-                        container.style.display = 'none';
-                        document.getElementById('status').style.display = 'block';
-                        document.getElementById('status').innerText = "Memuat data...";
-                        window.history.pushState({}, '', '?session=' + agenda.id);
-                        currentSessionId = agenda.id;
-                        loadLiveData(agenda.id);
-                    };
-                    list.appendChild(btn);
-                });
-            } catch (error) {
-                console.error(error);
-                document.getElementById('status').innerText = "Gagal memuat jadwal.";
-            }
-        }
-
-        async function loadLiveData(sessionId) {
-            try {
-                // Fetch Master Students list (once)
-                const studentsSnapshot = await db.collection("students").get();
-                let allStudents = [];
-                studentsSnapshot.forEach((doc) => {
-                    allStudents.push(doc.data());
-                });
-
-                // Group students by Class
-                let studentsByClass = {};
-                allStudents.forEach(student => {
-                    let className = student.className || "Tanpa Kelas";
-                    if (!studentsByClass[className]) {
-                        studentsByClass[className] = [];
-                    }
-                    studentsByClass[className].push(student);
-                });
-
-                // Setup Real-time Listener for Attendance
-                db.collection("attendance")
-                  .where("sessionId", "==", sessionId)
-                  .onSnapshot((snapshot) => {
-                    let liveAttendance = [];
-                    snapshot.forEach((doc) => {
-                        liveAttendance.push(doc.data());
-                    });
-                    updateUI(allStudents, studentsByClass, liveAttendance);
-                }, (error) => {
-                    console.error("Listener error:", error);
-                    document.getElementById('status').innerText = "Koneksi terputus. Pastikan aturan keamanan Firebase (Firestore Rules) mengizinkan baca.";
-                });
-
-            } catch (error) {
-                console.error("Error loading data: ", error);
-                document.getElementById('status').innerText = "Gagal memuat data. Periksa konfigurasi Firebase Anda.";
-            }
-        }
-
-        function updateUI(allStudents, studentsByClass, liveAttendance) {
+        if (firebaseConfig.apiKey === "YOUR_API_KEY") {
             document.getElementById('status').style.display = 'none';
-            document.getElementById('summary-container').style.display = 'flex';
+            document.getElementById('config-error').style.display = 'block';
+        } else {
+            try {
+                firebase.initializeApp(firebaseConfig);
+                const db = firebase.firestore();
 
-            // Update Summaries
-            const totalSiswa = allStudents.length;
-            const hadir = liveAttendance.filter(r => r.status === "Hadir").length;
-            const lain = liveAttendance.filter(r => r.status !== "Hadir" && r.status !== "Alpha" && r.status !== "Melanggar").length;
-            const tidakHadir = totalSiswa - hadir - lain;
+                // Use auto detect long-polling to prevent WebSocket hangs on local file:/// protocol
+                db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
 
-            document.getElementById('summary-total').innerText = totalSiswa;
-            document.getElementById('summary-hadir').innerText = hadir;
-            document.getElementById('summary-lain').innerText = lain;
-            document.getElementById('summary-tidak').innerText = tidakHadir;
+                // Get Session ID from URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const sessionId = urlParams.get('session');
 
-            // Draw Class Grid
-            const grid = document.getElementById('class-grid');
-            grid.innerHTML = '';
+                let currentSessionId = sessionId;
+                let selectedStudentNisn = "";
 
-            // Sort Classes
-            const sortedClasses = Object.keys(studentsByClass).sort();
+                window.loadAgendasForDate = async function(dbInstance = db) {
+                    try {
+                        const targetDate = document.getElementById('agenda-date').value;
+                        document.getElementById('status').style.display = 'block';
+                        document.getElementById('status').innerText = "Mencari jadwal untuk " + targetDate + "...";
+                        document.getElementById('agenda-list').innerHTML = '';
+                        document.getElementById('agenda-container').style.display = 'none';
 
-            sortedClasses.forEach(className => {
-                const classStudents = studentsByClass[className];
-                const classTotal = classStudents.length;
+                        const snapshot = await dbInstance.collection("agendas").where("date", "==", targetDate).get();
 
-                const classAttendedRecords = liveAttendance.filter(record =>
-                    classStudents.some(s => s.nisn === record.nisn) && record.status !== "Alpha"
-                );
-                const classAttendedCount = classAttendedRecords.length;
+                        document.getElementById('status').style.display = 'none';
+                        const container = document.getElementById('agenda-container');
+                        const list = document.getElementById('agenda-list');
+                        container.style.display = 'flex';
 
-                const percentage = classTotal > 0 ? Math.round((classAttendedCount / classTotal) * 100) : 0;
+                        if (snapshot.empty) {
+                            list.innerHTML = '<p style="color: #666; text-align: center;">Tidak ada kegiatan pada tanggal ini.</p>';
+                            return;
+                        }
 
-                let progressColor = "#E53935"; // Red
-                if (percentage === 100) progressColor = "#4CAF50"; // Green
-                else if (percentage > 0) progressColor = "#1976D2"; // Blue
-
-                const card = document.createElement('div');
-                card.className = 'class-card';
-                card.innerHTML = `
-                    <div class="class-info">
-                        <h3>${className}</h3>
-                        <p>${classAttendedCount} / ${classTotal}</p>
-                    </div>
-                    <div class="progress-circle" style="background: conic-gradient(${progressColor} ${percentage}%, #e0e0e0 0);">
-                        <div class="inner-circle">${percentage}%</div>
-                    </div>
-                `;
-
-                card.onclick = () => showDetails(className, classStudents, liveAttendance);
-                grid.appendChild(card);
-            });
-        }
-
-        function showDetails(className, classStudents, liveAttendance) {
-            const modal = document.getElementById('details-modal');
-            document.getElementById('modal-title').innerText = "Detail Kelas " + className;
-            const list = document.getElementById('modal-list');
-            list.innerHTML = '';
-            document.getElementById('proposal-form').style.display = 'none';
-
-            const sortedStudents = [...classStudents].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-
-            sortedStudents.forEach(student => {
-                const record = liveAttendance.find(r => r.nisn === student.nisn);
-                const isAttended = (record && record.status !== "Alpha");
-
-                let status = "Belum Hadir";
-                let color = "#E53935"; // Default Red
-
-                if (isAttended) {
-                    if (record.method === "usulan") {
-                        status = `${record.status} (Wali/Lainnya)`;
-                        color = "#6A1B9A"; // Purple for proposed
-                    } else {
-                        status = record.status;
-                        color = "#1B5E20"; // Green for scanned
+                        snapshot.forEach(doc => {
+                            const agenda = doc.data();
+                            const btn = document.createElement('button');
+                            btn.style.padding = "12px"; btn.style.background = "#1B5E20"; btn.style.color = "white";
+                            btn.style.border = "none"; btn.style.borderRadius = "8px"; btn.style.cursor = "pointer";
+                            btn.style.fontWeight = "bold";
+                            btn.innerText = agenda.activityName + " (" + agenda.time + ")";
+                            btn.onclick = () => {
+                                container.style.display = 'none';
+                                document.getElementById('status').style.display = 'block';
+                                document.getElementById('status').innerText = "Memuat data...";
+                                window.history.pushState({}, '', '?session=' + agenda.id);
+                                currentSessionId = agenda.id;
+                                loadLiveData(dbInstance, agenda.id);
+                            };
+                            list.appendChild(btn);
+                        });
+                    } catch (error) {
+                        console.error(error);
+                        document.getElementById('status').innerText = "Gagal memuat jadwal: " + error.message;
                     }
                 }
 
-                const row = document.createElement('div');
-                row.className = 'student-row';
-                if (!isAttended) {
-                    row.style.cursor = "pointer";
-                    row.onclick = () => openProposalForm(student.nisn, student.name);
+                async function loadLiveData(dbInstance, sessionId) {
+                    try {
+                        // Fetch Master Students list (once)
+                        const studentsSnapshot = await dbInstance.collection("students").get();
+                        let allStudents = [];
+                        studentsSnapshot.forEach((doc) => {
+                            allStudents.push(doc.data());
+                        });
+
+                        // Group students by Class
+                        let studentsByClass = {};
+                        allStudents.forEach(student => {
+                            let className = student.className || "Tanpa Kelas";
+                            if (!studentsByClass[className]) {
+                                studentsByClass[className] = [];
+                            }
+                            studentsByClass[className].push(student);
+                        });
+
+                        // Setup Real-time Listener for Attendance
+                        dbInstance.collection("attendance")
+                          .where("sessionId", "==", sessionId)
+                          .onSnapshot((snapshot) => {
+                            let liveAttendance = [];
+                            snapshot.forEach((doc) => {
+                                liveAttendance.push(doc.data());
+                            });
+                            updateUI(allStudents, studentsByClass, liveAttendance);
+                        }, (error) => {
+                            console.error("Listener error:", error);
+                            document.getElementById('status').innerText = "Koneksi terputus: " + error.message;
+                        });
+
+                    } catch (error) {
+                        console.error("Error loading data: ", error);
+                        document.getElementById('status').innerText = "Gagal memuat data: " + error.message;
+                    }
                 }
 
-                row.innerHTML = `
-                    <span class="name">${student.name}</span>
-                    <span class="status" style="color: ${color}">${status}</span>
-                `;
-                list.appendChild(row);
-            });
-            modal.style.display = 'flex';
-        }
+                function updateUI(allStudents, studentsByClass, liveAttendance) {
+                    document.getElementById('status').style.display = 'none';
+                    document.getElementById('summary-container').style.display = 'flex';
 
-        window.openProposalForm = function(nisn, name) {
-            selectedStudentNisn = nisn;
-            document.getElementById('proposal-student-name').innerText = name;
-            document.getElementById('proposal-form').style.display = 'flex';
-        }
+                    // Update Summaries
+                    const totalSiswa = allStudents.length;
+                    const hadir = liveAttendance.filter(r => r.status === "Hadir").length;
+                    const lain = liveAttendance.filter(r => r.status !== "Hadir" && r.status !== "Alpha" && r.status !== "Melanggar").length;
+                    const tidakHadir = totalSiswa - hadir - lain;
 
-        window.submitProposal = async function() {
-            const status = document.getElementById('proposal-status').value;
-            const role = document.getElementById('proposal-role').value;
-            const name = document.getElementById('proposal-name').value.trim();
+                    document.getElementById('summary-total').innerText = totalSiswa;
+                    document.getElementById('summary-hadir').innerText = hadir;
+                    document.getElementById('summary-lain').innerText = lain;
+                    document.getElementById('summary-tidak').innerText = tidakHadir;
 
-            if (!name) {
-                alert("Harap isi Nama Pelapor.");
-                return;
+                    // Draw Class Grid
+                    const grid = document.getElementById('class-grid');
+                    grid.innerHTML = '';
+
+                    // Sort Classes
+                    const sortedClasses = Object.keys(studentsByClass).sort();
+
+                    sortedClasses.forEach(className => {
+                        const classStudents = studentsByClass[className];
+                        const classTotal = classStudents.length;
+
+                        const classAttendedRecords = liveAttendance.filter(record =>
+                            classStudents.some(s => s.nisn === record.nisn) && record.status !== "Alpha"
+                        );
+                        const classAttendedCount = classAttendedRecords.length;
+
+                        const percentage = classTotal > 0 ? Math.round((classAttendedCount / classTotal) * 100) : 0;
+
+                        let progressColor = "#E53935"; // Red
+                        if (percentage === 100) progressColor = "#4CAF50"; // Green
+                        else if (percentage > 0) progressColor = "#1976D2"; // Blue
+
+                        const card = document.createElement('div');
+                        card.className = 'class-card';
+                        card.innerHTML = `
+                            <div class="class-info">
+                                <h3>${className}</h3>
+                                <p>${classAttendedCount} / ${classTotal}</p>
+                            </div>
+                            <div class="progress-circle" style="background: conic-gradient(${progressColor} ${percentage}%, #e0e0e0 0);">
+                                <div class="inner-circle">${percentage}%</div>
+                            </div>
+                        `;
+
+                        card.onclick = () => showDetails(className, classStudents, liveAttendance);
+                        grid.appendChild(card);
+                    });
+                }
+
+                function showDetails(className, classStudents, liveAttendance) {
+                    const modal = document.getElementById('details-modal');
+                    document.getElementById('modal-title').innerText = "Detail Kelas " + className;
+                    const list = document.getElementById('modal-list');
+                    list.innerHTML = '';
+                    document.getElementById('proposal-form').style.display = 'none';
+
+                    const sortedStudents = [...classStudents].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+                    sortedStudents.forEach(student => {
+                        const record = liveAttendance.find(r => r.nisn === student.nisn);
+                        const isAttended = (record && record.status !== "Alpha");
+
+                        let status = "Belum Hadir";
+                        let color = "#E53935"; // Default Red
+
+                        if (isAttended) {
+                            if (record.method === "usulan") {
+                                status = `${record.status} (Wali/Lainnya)`;
+                                color = "#6A1B9A"; // Purple for proposed
+                            } else {
+                                status = record.status;
+                                color = "#1B5E20"; // Green for scanned
+                            }
+                        }
+
+                        const row = document.createElement('div');
+                        row.className = 'student-row';
+                        if (!isAttended) {
+                            row.style.cursor = "pointer";
+                            row.onclick = () => openProposalForm(student.nisn, student.name);
+                        }
+
+                        row.innerHTML = `
+                            <span class="name">${student.name}</span>
+                            <span class="status" style="color: ${color}">${status}</span>
+                        `;
+                        list.appendChild(row);
+                    });
+                    modal.style.display = 'flex';
+                }
+
+                window.openProposalForm = function(nisn, name) {
+                    selectedStudentNisn = nisn;
+                    document.getElementById('proposal-student-name').innerText = name;
+                    document.getElementById('proposal-form').style.display = 'flex';
+                }
+
+                window.submitProposal = async function() {
+                    const status = document.getElementById('proposal-status').value;
+                    const role = document.getElementById('proposal-role').value;
+                    const name = document.getElementById('proposal-name').value.trim();
+                    const notes = document.getElementById('proposal-notes').value.trim();
+
+                    if (!name) {
+                        alert("Harap isi Nama Pelapor.");
+                        return;
+                    }
+
+                    try {
+                        const id = "usulan_" + Date.now();
+                        const payload = {
+                            sessionId: currentSessionId,
+                            nisn: selectedStudentNisn,
+                            proposedStatus: status,
+                            reporterRole: role,
+                            reporterName: name,
+                            notes: notes
+                        };
+
+                        await db.collection("approvals").doc(id).set({
+                            id: id,
+                            requester: "Web (" + role + ")",
+                            action: "USULAN_STATUS",
+                            dataPayload: JSON.stringify(payload),
+                            timestamp: Date.now()
+                        });
+
+                        alert("Usulan berhasil dikirim! Menunggu persetujuan Wali Kelas/Admin.");
+                        document.getElementById('proposal-form').style.display = 'none';
+                    } catch (error) {
+                        console.error(error);
+                        alert("Gagal mengirim usulan: " + error.message);
+                    }
+                }
+
+                window.closeModal = function() {
+                    document.getElementById('details-modal').style.display = 'none';
+                    document.getElementById('proposal-form').style.display = 'none';
+                }
+
+                if (!sessionId) {
+                    document.getElementById('status').innerText = "Mencari jadwal hari ini...";
+                    const today = new Date().toISOString().split('T')[0];
+                    document.getElementById('agenda-date').value = today;
+                    loadAgendasForDate(db);
+                } else {
+                    document.getElementById('status').innerText = "Memuat data...";
+                    loadLiveData(db, sessionId);
+                }
+
+            } catch (err) {
+                console.error("Initialization Error: ", err);
+                document.getElementById('status').innerText = "Gagal memulai aplikasi: " + err.message;
             }
-
-            try {
-                const id = "usulan_" + Date.now();
-                const payload = {
-                    sessionId: currentSessionId,
-                    nisn: selectedStudentNisn,
-                    proposedStatus: status,
-                    reporterRole: role,
-                    reporterName: name
-                };
-
-                await db.collection("approvals").doc(id).set({
-                    id: id,
-                    requester: "Web (" + role + ")",
-                    action: "USULAN_STATUS",
-                    dataPayload: JSON.stringify(payload),
-                    timestamp: Date.now()
-                });
-
-                alert("Usulan berhasil dikirim! Menunggu persetujuan Wali Kelas/Admin.");
-                document.getElementById('proposal-form').style.display = 'none';
-            } catch (error) {
-                console.error(error);
-                alert("Gagal mengirim usulan.");
-            }
-        }
-
-        window.closeModal = function() {
-            document.getElementById('details-modal').style.display = 'none';
-            document.getElementById('proposal-form').style.display = 'none';
         }
     </script>
 </body>
