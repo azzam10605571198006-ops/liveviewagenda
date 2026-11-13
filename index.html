@@ -337,15 +337,21 @@
 
                 async function loadLiveData(dbInstance, sessionId) {
                     try {
-                        // Fetch Master Students list (once)
-                        const studentsSnapshot = await dbInstance.collection("students").get();
                         let allStudents = [];
-                        studentsSnapshot.forEach((doc) => {
-                            allStudents.push(doc.data());
-                        });
-
-                        // Group students by Class
                         let studentsByClass = {};
+
+                        // Caching logic for Web Viewer
+                        const cachedStudents = sessionStorage.getItem("cachedStudents");
+                        if (cachedStudents) {
+                            allStudents = JSON.parse(cachedStudents);
+                        } else {
+                            const studentsSnapshot = await dbInstance.collection("students").get();
+                            studentsSnapshot.forEach((doc) => {
+                                allStudents.push(doc.data());
+                            });
+                            sessionStorage.setItem("cachedStudents", JSON.stringify(allStudents));
+                        }
+
                         allStudents.forEach(student => {
                             let className = student.className || "Tanpa Kelas";
                             if (!studentsByClass[className]) {
