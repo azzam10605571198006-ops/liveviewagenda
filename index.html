@@ -26,6 +26,21 @@
         }
         .header-left h1 { margin: 0; font-size: 24px; }
         .header-left p { margin: 5px 0 0 0; font-size: 14px; opacity: 0.8; }
+        .back-btn {
+            background-color: #388E3C;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            margin: 20px 20px 0 20px;
+            display: none;
+            align-items: center;
+            gap: 8px;
+        }
+        .back-btn:hover { background-color: #2E7D32; }
         .live-badge {
             background-color: #388E3C;
             padding: 8px 16px;
@@ -170,6 +185,10 @@
         </div>
     </div>
 
+    <button class="back-btn" id="back-btn" onclick="goBack()">
+        ← Kembali ke Daftar Kegiatan
+    </button>
+
     <div id="status">Menginisialisasi Firebase...</div>
 
     <div id="config-error" style="display: none; background: #ffebee; color: #c62828; padding: 20px; margin: 20px; border-radius: 8px; border: 1px solid #ef9a9a; text-align: center;">
@@ -270,6 +289,7 @@
 
                 let currentSessionId = sessionId;
                 let selectedStudentNisn = "";
+                let unsubscribeSnapshot = null; // To hold the realtime listener
 
                 window.loadAgendasForDate = async function(dbInstance = db) {
                     try {
@@ -304,6 +324,7 @@
                                 document.getElementById('status').innerText = "Memuat data...";
                                 window.history.pushState({}, '', '?session=' + agenda.id);
                                 currentSessionId = agenda.id;
+                                document.getElementById('back-btn').style.display = 'flex';
                                 loadLiveData(dbInstance, agenda.id);
                             };
                             list.appendChild(btn);
@@ -334,7 +355,11 @@
                         });
 
                         // Setup Real-time Listener for Attendance
-                        dbInstance.collection("attendance")
+                        if (unsubscribeSnapshot) {
+                            unsubscribeSnapshot(); // Stop previous listener if going back and forth
+                        }
+
+                        unsubscribeSnapshot = dbInstance.collection("attendance")
                           .where("sessionId", "==", sessionId)
                           .onSnapshot((snapshot) => {
                             let liveAttendance = [];
@@ -498,6 +523,24 @@
                     document.getElementById('proposal-form').style.display = 'none';
                 }
 
+                window.goBack = function() {
+                    if (unsubscribeSnapshot) {
+                        unsubscribeSnapshot();
+                        unsubscribeSnapshot = null;
+                    }
+
+                    document.getElementById('summary-container').style.display = 'none';
+                    document.getElementById('class-grid').innerHTML = '';
+                    document.getElementById('back-btn').style.display = 'none';
+
+                    window.history.pushState({}, '', window.location.pathname); // Clear URL params
+                    currentSessionId = null;
+
+                    document.getElementById('status').style.display = 'block';
+                    document.getElementById('status').innerText = "Mencari jadwal hari ini...";
+                    loadAgendasForDate(db);
+                }
+
                 if (!sessionId) {
                     document.getElementById('status').innerText = "Mencari jadwal hari ini...";
                     const today = new Date().toISOString().split('T')[0];
@@ -505,6 +548,7 @@
                     loadAgendasForDate(db);
                 } else {
                     document.getElementById('status').innerText = "Memuat data...";
+                    document.getElementById('back-btn').style.display = 'flex';
                     loadLiveData(db, sessionId);
                 }
 
